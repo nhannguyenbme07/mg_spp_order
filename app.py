@@ -107,7 +107,7 @@ st.caption("Onhand ≤ Min → đặt (Max − Onhand). HN = kho đuôi 23, HCM 
 
 # --- ① & ② đầu vào ---
 c1, c2 = st.columns([2, 1])
-inv_upload = c1.file_uploader("① Import file tồn kho (PBI_Export)", type=["xlsx"])
+inv_upload = c1.file_uploader("① Import file tồn kho (PBI_Export hoặc MG Inventory Report)", type=["xlsx"])
 region_choice = c2.radio("② Khu vực", ["HN", "HCM", "Cả nước"], horizontal=True)
 regions = ["HN", "HCM"] if region_choice == "Cả nước" else [region_choice]
 
@@ -214,7 +214,8 @@ if st.button("④ Phân tích", type="primary", width="stretch"):
 if "result" in st.session_state:
     result = st.session_state["result"]
     regions = st.session_state["regions"]
-    st.info("Kho ghi nhận theo đuôi mã: " + ", ".join(
+    st.info(f"Định dạng nhận diện: sheet '{st.session_state['audit'].get('sheet','?')}' · "
+            "Kho ghi nhận theo đuôi mã: " + ", ".join(
         f"{k}×{v}" for k, v in sorted(st.session_state["audit"]["suffix_counts"].items())))
 
     st.subheader("⑤ Bảng đề xuất (đã gộp tự động + nhập tay — có thể chỉnh / xoá dòng)")
