@@ -48,21 +48,6 @@ Không cần sửa code.
 - `partlist.xlsx` — SPP master: tra **tên** và **đơn giá** từ mã (cột `Unit Price`). Cập nhật giá tại đây.
 
 
-## Đăng nhập (mật khẩu qua Streamlit secrets)
-App có màn đăng nhập ở đầu. Mật khẩu KHÔNG nằm trong code mà đọc từ Streamlit **secrets**.
-
-Chạy LOCAL: tạo file `.streamlit/secrets.toml` (xem `secrets.toml.example`):
-```toml
-app_password = "mat_khau_cua_ban"
-```
-Hoặc nhiều tài khoản:
-```toml
-[passwords]
-nhan = "..."
-tuan = "..."
-```
-Trên Streamlit Cloud: mở app -> **Settings -> Secrets** -> dán nội dung trên -> Save (app tự khởi động lại).
-File `secrets.toml` thật đã được `.gitignore` loại trừ, không bị đẩy lên GitHub.
 
 ## Cập nhật giá
 Sửa cột `Unit Price` trong `partlist.xlsx` (mỗi mã một dòng). Đây là nguồn giá duy nhất; `standard.xlsx` không còn cột giá.
