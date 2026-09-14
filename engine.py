@@ -229,39 +229,96 @@ def resolve_name(code, items, lookup, partlist=None):
 
 
 # ----------------------------------------------------------------------------
-# Nạp tồn kho
+# Nạp tồn kho — nhận diện được NHIỀU định dạng file
+#   (1) PBI_Export: header dòng 1, cột 'Warehouse','Item Code','Item Name','Brand','Quantity'
+#   (2) MGInventoryOnhand report: sheet 'Sheet1', header kiểu '...View[INVENTLOCATIONID]',
+#       '[ITEMID]','[Item Name]','[RP_BRAND]','[CBQTY]', có 1 dòng trống dưới header
 # ----------------------------------------------------------------------------
+INV_ALIASES = {
+    "wh":    {"WAREHOUSE", "INVENTLOCATIONID", "INVENT LOCATION ID", "LOCATION", "LOCATIONID"},
+    "code":  {"ITEM CODE", "ITEMCODE", "ITEMID", "ITEM ID"},
+    "name":  {"ITEM NAME", "ITEMNAME"},
+    "brand": {"BRAND", "RP_BRAND"},
+    "qty":   {"QUANTITY", "QTY", "CBQTY"},
+}
+
+
+def _extract_header(h):
+    """Chuẩn hoá header; nếu dạng '...View[TOKEN]' thì lấy phần trong [] cuối."""
+    if h is None:
+        return ""
+    s = str(h)
+    m = re.findall(r"\[([^\]]+)\]", s)
+    if m:
+        s = m[-1]
+    return re.sub(r"\s+", " ", s.strip().upper())
+
+
+def _match_inv_columns(ws, header_row):
+    col = {}
+    for c in range(1, ws.max_column + 1):
+        h = _extract_header(ws.cell(header_row, c).value)
+        if not h:
+            continue
+        for field, names in INV_ALIASES.items():
+            if field in col:
+                continue
+            if h in names or (field == "brand" and h.endswith("BRAND")):
+                col[field] = c
+    return col
+
+
+def _find_inv_header(ws):
+    """Tìm dòng header trong 6 dòng đầu (cần tối thiểu Warehouse + Item Code + Quantity)."""
+    for r in range(1, min(6, ws.max_row) + 1):
+        col = _match_inv_columns(ws, r)
+        if {"wh", "code", "qty"} <= set(col):
+            return r, col
+    return None, None
+
+
 def load_inventory(path, lookup, n_items):
     wb = openpyxl.load_workbook(path, data_only=True)
-    ws = wb["PBI_Export"] if "PBI_Export" in wb.sheetnames else wb.worksheets[0]
-    hdr = {ws.cell(1, c).value: c for c in range(1, ws.max_column + 1)}
-    c_wh, c_code, c_name, c_brand, c_qty = (
-        hdr.get("Warehouse"), hdr.get("Item Code"),
-        hdr.get("Item Name"), hdr.get("Brand"), hdr.get("Quantity"),
-    )
+    ws = header_row = col = None
+    for sheet in wb.worksheets:
+        hr, cmap = _find_inv_header(sheet)
+        if hr:
+            ws, header_row, col = sheet, hr, cmap
+            break
+    if ws is None:
+        wb.close()
+        raise ValueError("Không nhận diện được định dạng file tồn kho "
+                         "(cần có cột Warehouse/Location, Item Code/ItemID, Quantity/CBQTY).")
+
+    c_wh, c_code, c_qty = col["wh"], col["code"], col["qty"]
+    c_name, c_brand = col.get("name"), col.get("brand")
+
     std_onhand = [{"HN": 0.0, "HCM": 0.0} for _ in range(n_items)]
     raw_onhand, raw_info, seen_suffix = {}, {}, {}
-    for r in range(2, ws.max_row + 1):
+    for r in range(header_row + 1, ws.max_row + 1):
         code = ws.cell(r, c_code).value
-        if code is None:
+        if code is None:                        # bỏ dòng trống (vd dòng 2 của report)
             continue
         wh = ws.cell(r, c_wh).value
         qty = _num(ws.cell(r, c_qty).value)
         code_n = norm_code(code)
         if code_n not in raw_info:
-            raw_info[code_n] = {"name": _clean_text(ws.cell(r, c_name).value),
-                                "brand": ws.cell(r, c_brand).value}
+            raw_info[code_n] = {
+                "name": _clean_text(ws.cell(r, c_name).value) if c_name else None,
+                "brand": ws.cell(r, c_brand).value if c_brand else None,
+            }
         suffix = str(wh)[-2:] if wh is not None else ""
         seen_suffix[suffix] = seen_suffix.get(suffix, 0) + 1
         region = REGION_SUFFIX.get(suffix)
-        if region is None:
+        if region is None:                      # đuôi 10/30/31... = đang về/trung chuyển
             continue
         raw_onhand.setdefault(code_n, {"HN": 0.0, "HCM": 0.0})[region] += qty
         idx = lookup.get(code_n)
         if idx is not None:
             std_onhand[idx][region] += qty
     wb.close()
-    return std_onhand, raw_onhand, raw_info, {"suffix_counts": seen_suffix}
+    return std_onhand, raw_onhand, raw_info, {
+        "suffix_counts": seen_suffix, "sheet": ws.title, "header_row": header_row}
 
 
 # ----------------------------------------------------------------------------
