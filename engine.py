@@ -293,7 +293,7 @@ def load_inventory(path, lookup, n_items):
     c_wh, c_code, c_qty = col["wh"], col["code"], col["qty"]
     c_name, c_brand = col.get("name"), col.get("brand")
 
-    std_onhand = [{"HN": 0.0, "HCM": 0.0} for _ in range(n_items)]
+    std_onhand = [{"HN": 0.0, "HCM": 0.0, "PENDING": 0.0} for _ in range(n_items)]
     raw_onhand, raw_info, seen_suffix = {}, {}, {}
     for r in range(header_row + 1, ws.max_row + 1):
         code = ws.cell(r, c_code).value
@@ -309,11 +309,16 @@ def load_inventory(path, lookup, n_items):
             }
         suffix = str(wh)[-2:] if wh is not None else ""
         seen_suffix[suffix] = seen_suffix.get(suffix, 0) + 1
-        region = REGION_SUFFIX.get(suffix)
-        if region is None:                      # đuôi 10/30/31... = đang về/trung chuyển
-            continue
-        raw_onhand.setdefault(code_n, {"HN": 0.0, "HCM": 0.0})[region] += qty
         idx = lookup.get(code_n)
+        if suffix == "10":                      # hàng đang về -> Pending NW
+            raw_onhand.setdefault(code_n, {"HN": 0.0, "HCM": 0.0, "PENDING": 0.0})["PENDING"] += qty
+            if idx is not None:
+                std_onhand[idx]["PENDING"] += qty
+            continue
+        region = REGION_SUFFIX.get(suffix)
+        if region is None:                      # đuôi 30/31... = trung chuyển khác -> bỏ qua
+            continue
+        raw_onhand.setdefault(code_n, {"HN": 0.0, "HCM": 0.0, "PENDING": 0.0})[region] += qty
         if idx is not None:
             std_onhand[idx][region] += qty
     wb.close()
@@ -336,7 +341,7 @@ def _base_row(item, onhand):
         "Analyzer": item["analyzer"],
         "Reason of Order": DEFAULT_REASON,
         "Purpose": DEFAULT_PURPOSE,
-        "Pending NW": None,
+        "Pending NW": (_as_int_if_whole(onhand.get("PENDING", 0)) if onhand.get("PENDING", 0) else None),
         "Onhand HN": _as_int_if_whole(onhand["HN"]),
         "Onhand HCM": _as_int_if_whole(onhand["HCM"]),
         "Note": None,
@@ -403,7 +408,7 @@ def enrich_manual(code, qty, reason, purpose, item_group,
         else:
             std_min, std_max = _as_int_if_whole(item["hcm_min"]), _as_int_if_whole(item["hcm_max"])
     else:                                                # ngoài tiêu chuẩn -> PartList / tồn kho thô
-        onhand = raw_onhand.get(code_n, {"HN": 0.0, "HCM": 0.0})
+        onhand = raw_onhand.get(code_n, {"HN": 0.0, "HCM": 0.0, "PENDING": 0.0})
         pl = (partlist or {}).get(code_n, {})
         info = raw_info.get(code_n, {})
         resolved_name = pl.get("name") or info.get("name")
@@ -432,7 +437,7 @@ def enrich_manual(code, qty, reason, purpose, item_group,
         "Analyzer": analyzer,
         "Reason of Order": reason or "",
         "Purpose": purpose or "",
-        "Pending NW": None,
+        "Pending NW": (_as_int_if_whole(onhand.get("PENDING", 0)) if onhand.get("PENDING", 0) else None),
         "Onhand HN": _as_int_if_whole(onhand["HN"]),
         "Onhand HCM": _as_int_if_whole(onhand["HCM"]),
         "Note": None,
